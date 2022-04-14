@@ -6,7 +6,7 @@ use Cwd 'abs_path';
 use IPC::Cmd qw[can_run run];
 use Parallel::Loops;
 
-my $version = "0.1";
+my $version = "0.2";
 
 my $busco_dir = "";
 my $full_table = "";
@@ -28,6 +28,8 @@ my @arg_cp = @ARGV;
 my @error_args = ();
 my $length = 0;
 my %genome_ann;
+my $busco_version;
+my $busco_major;
 
 my $input_error = 0;
 
@@ -36,17 +38,14 @@ sub print_help{
 	print STDOUT "busco2snap.pl v$version\n";
 	print STDOUT "\n";
 	print STDOUT "Description:\n";
-	print STDOUT "\tCreation of a SNAP model from BUSCOs by predicting the gene structure with the retrained\n\tAugustus model, converting to zff format. The tools augustus and blastp need to be in\n\tyour \$PATH. If fathom, forge and hmm-assembler.pl are in your \$PATH the SNAP model will be\n\tcreated automatically.\n";
-	print STDOUT "\tIf Augustus predicts more than one gene at a BUSCO locus the predicted proteins are blasted\n\tagainst the ancestral variants of the corresponding BUSCO lineage. The gene(s) where the best\n\thit (defined by highest bit score) is on the searched BUSCO are used only.\n";
+	print STDOUT "\tCreation of a SNAP model from BUSCOs by predicting the gene structure with the retrained\n\taugustus model, converting to zff format. The tools augustus and blastp need to be in\n\tyour \$PATH. If fathom, forge and hmm-assembler are in your \$PATH the SNAP model will be\n\tcreated automatically.\n";
+	print STDOUT "\tIf augustus predicts more than one gene at a BUSCO locus the predicted proteins are blasted\n\tagainst the ancestral variants of the corresponding BUSCO lineage. The gene(s) where the best\n\thit (defined by highest bit score) is on the searched BUSCO are used only.\n";
 	print STDOUT "\n";
 	print STDOUT "Usage:\n";
-	print STDOUT "\tbusco2snap.pl [-b <busco_dir> | -ft <full_table> -rp <retraining_parameters>]\n";
+	print STDOUT "\tbusco2snap.pl -b <busco_dir>\n";
 	print STDOUT "\n";
 	print STDOUT "Mandatory:\n";
 	print STDOUT "\t-b STR\t\tBUSCO output directory (run_*)\n";
-	print STDOUT "\tOR\n";
-	print STDOUT "\t-ft STR\t\tBUSCOs full table file (full_table_*)\n";
-	print STDOUT "\t-rp STR\t\tDirectory containing retrining parameters from Augustus\n\t\t\t(augustus_output/retraining_parameters/)\n";
 	print STDOUT "\n";
 	print STDOUT "Options: [default]\n";
 	print STDOUT "\t-dup\t\tInclude duplicated BUSCOs [off]\n";
@@ -82,7 +81,7 @@ sub empty_element{
 
 sub check_rp{
 	my ($rp_dir) = @_;
-	opendir (DIR, $rp_dir) or die "ERROR\tcould not open directory $rp_dir\n";
+	opendir (DIR, $rp_dir) or die "ERROR\tCould not open directory $rp_dir\n";
 	
 	my $base = "";
 	while (my $file = readdir(DIR)){
@@ -108,7 +107,7 @@ sub check_rp{
 				next;
 			}
 			else{
-				print STDERR "ERROR\tUnrecognized Augustus model part $file in $rp_dir\n";
+				print STDERR "ERROR\tUnrecognized augustus model part $file in $rp_dir\n";
 				$input_error = 1;
 			}
 		}
@@ -133,7 +132,7 @@ sub check_rp{
 			next;
 		}
 		else{
-			print STDERR "ERROR\tUnrecognized Augustus model part $file in $rp_dir\n";
+			print STDERR "ERROR\tUnrecognized augustus model part $file in $rp_dir\n";
 			$input_error = 1;
 		}
 	}
@@ -147,14 +146,6 @@ if(scalar(@ARGV==0)){
 for (my $i = 0; $i < scalar(@ARGV);$i++){
 	if ($ARGV[$i] eq "-b"){
 		$busco_dir = abs_path($ARGV[$i+1]);
-		empty_element($i,2);
-	}
-	if ($ARGV[$i] eq "-ft"){
-		$full_table = abs_path($ARGV[$i+1]);
-		empty_element($i,2);
-	}
-	if ($ARGV[$i] eq "-rp"){
-		$retraining_parameters = abs_path($ARGV[$i+1]);
 		empty_element($i,2);
 	}
 	if ($ARGV[$i] eq "-dup"){
@@ -210,17 +201,25 @@ if(scalar(@error_args) > 0){
 	$input_error = 1;
 }
 
-if($full_table eq "" and $retraining_parameters eq "" and $busco_dir ne ""){
-
-	$full_table = `find $busco_dir -mindepth 1 -maxdepth 1 -type f -name "full_table_*"`;
+if($busco_dir ne ""){
+	$full_table = `find $busco_dir -mindepth 1 -maxdepth 1 -type f -name "full_table*"`;
 	chomp $full_table;
 	if($full_table eq ""){
 		print STDERR "ERROR\tfull_table not found\n";
 		$input_error = 1;
 	}
+	$busco_version = `grep "BUSCO version" $full_table`;
+	chomp $busco_version;
+	$busco_version = (split(/ /,$busco_version))[-1];
+	$busco_major = (split(/\./,$busco_version))[0];
+	print STDERR "INFO\tDetected BUSCO version $busco_version\n";
 	
 	$retraining_parameters = `find $busco_dir -mindepth 2 -maxdepth 2 -type d -name "retraining_parameters"`;
 	chomp $retraining_parameters;
+	if($busco_major == 4 or $busco_major == 5){
+		$retraining_parameters = `find $retraining_parameters -mindepth 1 -maxdepth 1 -type d -name "BUSCO_*"`;
+		chomp $retraining_parameters;
+	}
 	if($retraining_parameters eq ""){
 		print STDERR "ERROR\tretraining_parameters not found\n";
 		$input_error = 1;
@@ -230,29 +229,8 @@ if($full_table eq "" and $retraining_parameters eq "" and $busco_dir ne ""){
 	}
 }
 else{
-	if($full_table eq ""){
-		print STDERR "ERROR\t-ft not specified\n";
-		$input_error = 1;
-	}
-	else{
-		if(not -f $full_table){
-			print STDERR "ERROR\t$full_table is not a file\n";
-			$input_error = 1;
-		}
-	}
-	if($retraining_parameters eq ""){
-		print STDERR "ERROR\t-rp not specified\n";
-		$input_error = 1;
-	}
-	else{
-		if(not -d $retraining_parameters){
-			print STDERR "ERROR\t$retraining_parameters is not a directory\n";
-			$input_error = 1;
-		}
-		else{
-			$species = check_rp($retraining_parameters);
-		}
-	}
+	print STDERR "ERROR\t-b must be specified\n";
+	$input_error = 1;
 }
 
 if($threads !~ m/^\d+$/ or $threads <= 0){
@@ -269,10 +247,20 @@ if(not defined(can_run("augustus"))){
 	print STDERR "ERROR\taugustus is not in your \$PATH\n";
 	$input_error = 1;
 }
+else{
+	my $augustus_version = `augustus --version 2>&1 | head -n 1 | sed 's/.*(//;s/).*//'`;
+	chomp $augustus_version;
+	print STDERR "INFO\tUsing augustus $augustus_version\n";
+}
 
 if(not defined(can_run("blastp"))){
 	print STDERR "ERROR\tblastp is not in your \$PATH\n";
 	$input_error = 1;
+}
+else{
+	my $blastp_version = `blastp -version | head -n 1 | sed 's/.*: //'`;
+	chomp $blastp_version;
+	print STDERR "INFO\tUsing blastp $blastp_version\n";
 }
 
 if(not defined($ENV{'AUGUSTUS_CONFIG_PATH'})){
@@ -343,24 +331,48 @@ my $lineage_path = "";
 
 print STDERR "INFO\tExtracting BUSCOs and their locations from $full_table\n";
 
-open (FT, '<', $full_table) or die "ERROR\tcould not open $full_table\n";
+if($busco_major == 4 or $busco_major == 5){
+	my $busco_log = abs_path("$busco_dir/../logs/busco.log");
+	open (LOG, '<', $busco_log) or die "ERROR\tCould not open $busco_log\n";
+	while (my $line = <LOG>){
+		chomp $line;
+		if($line =~ m/_input_filepath/){
+			$target_fasta = $line;
+			$target_fasta =~ s/^.*': '//;
+			$target_fasta =~ s/',$//;
+		}
+		if($line =~ m/lineage_dataset/){
+			$lineage_path = $line;
+			$lineage_path =~ s/^.*': '//;
+			$lineage_path =~ s/',$//;
+		}
+	}
+	close LOG;
+}
+
+open (FT, '<', $full_table) or die "ERROR\tCould not open $full_table\n";
 
 while (my $line = <FT>){
 	if($line =~ m/^#/){
-		if($line =~ m/^# To reproduce this run: /){
-			my @run = split(/ /,$line);
-			for(my $i = 0; $i < scalar(@run); $i++){
-				if($run[$i] eq "-i"){
-					$target_fasta = $run[$i+1];
-				}
-				if($run[$i] eq "-l"){
-					$lineage_path = $run[$i+1];
-					if(substr($lineage_path,-1) eq "/"){
-						$lineage_path = substr($lineage_path,0,-1);
+		if($busco_major < 4){
+			if($line =~ m/^# To reproduce this run: /){
+				my @run = split(/ /,$line);
+				for(my $i = 0; $i < scalar(@run); $i++){
+					if($run[$i] eq "-i"){
+						$target_fasta = $run[$i+1];
+					}
+					if($run[$i] eq "-l"){
+						$lineage_path = $run[$i+1];
+						if(substr($lineage_path,-1) eq "/"){
+							$lineage_path = substr($lineage_path,0,-1);
+						}
 					}
 				}
+				next;
 			}
-			next;
+			else{
+				next;
+			}
 		}
 		else{
 			next;
@@ -412,7 +424,7 @@ my $fa_progress = 0;
 my $fa_frac = 0;
 
 if($dry == 0){
-	open (FA, '<', $target_fasta) or die "ERROR\tcould not open $target_fasta\n";
+	open (FA, '<', $target_fasta) or die "ERROR\tCould not open $target_fasta\n";
 
 	my $head = "";
 	my $out_file = "";
@@ -435,7 +447,7 @@ if($dry == 0){
 				
 				$out_file = $head . ".fa";
 				$out_file =~ tr/[\/><|:&\\,;?*]/_/;
-				open (OUT, '>', "$out_dir/$out_file") or die "ERROR\tcould not open $out_dir/$out_file\n";
+				open (OUT, '>', "$out_dir/$out_file") or die "ERROR\tCould not open $out_dir/$out_file\n";
 				push(@out_fa,"$out_dir/$out_file");
 			}
 		}
@@ -458,6 +470,11 @@ if(not -l "$out_dir/ancestral_variants"){
 }
 if(not -f "$out_dir/ancestral_variants.pog" or not -f "$out_dir/ancestral_variants.psd" or not -f "$out_dir/ancestral_variants.psi" or not -f "$out_dir/ancestral_variants.phr"     or not -f "$out_dir/ancestral_variants.psq" or not -f "$out_dir/ancestral_variants.pin"){
 	$cmd = "makeblastdb -in $out_dir/ancestral_variants -dbtype prot -parse_seqids -out $out_dir/ancestral_variants > $out_dir/makeblastdb.log 2> $out_dir/makeblastdb.err";
+	exe_cmd($cmd,$verbose,$dry);
+}
+
+if ($keep_tmp == 0){
+	$cmd = "rm $out_dir/makeblastdb.log $out_dir/makeblastdb.err";
 	exe_cmd($cmd,$verbose,$dry);
 }
 
@@ -667,7 +684,18 @@ $length = length($b_progress . " / " . $num_buscos . " [" . $b_frac . "%]");
 print STDERR " " x $length . "\r";
 
 if($keep_tmp == 0){
-	my @db = ("ancestral_variants","ancestral_variants.pog","ancestral_variants.psd","ancestral_variants.psi","ancestral_variants.phr","ancestral_variants.psq","ancestral_variants.pin");
+	my @db = ("ancestral_variants",
+		"ancestral_variants.pog",
+		"ancestral_variants.psd",
+		"ancestral_variants.psi",
+		"ancestral_variants.phr",
+		"ancestral_variants.psq",
+		"ancestral_variants.pin",
+		"ancestral_variants.pto",
+		"ancestral_variants.ptf",
+		"ancestral_variants.pot",
+		"ancestral_variants.pos",
+		"ancestral_variants.pdb");
 	foreach(@db){
 		if(-f "$out_dir/$_"){
 			$cmd = "rm $out_dir/$_";
@@ -710,6 +738,9 @@ if($keep_tmp == 0){
 }
 
 if(defined(can_run("fathom")) and defined(can_run("forge")) and defined(can_run("hmm-assembler.pl"))){
+	my $snap_version = `fathom 2>&1 | grep "version" | sed 's/^.*(version //;s/)\$//'`;
+	chomp $snap_version;
+	print STDERR "INFO\tUsing snap $snap_version \n";
 	print STDERR "INFO\tCreating snap model $out_dir/$prefix.snap.hmm\n";
 	if($verbose == 1){
 		print STDERR "CMD\tcd $out_dir\n";
@@ -724,9 +755,26 @@ if(defined(can_run("fathom")) and defined(can_run("forge")) and defined(can_run(
 	$cmd = "hmm-assembler.pl $prefix . > $prefix.snap.hmm 2> hmm-assembler.err";
 	exe_cmd($cmd,$verbose,$dry);
 	if($keep_tmp == 0){
+		$cmd = "rm genome.dna genome.ann";
+		exe_cmd($cmd,$verbose,$dry);
 		my @patterns = ("*count","*model","*duration","transitions","phaseprefs","alt.ann","alt.dna","err.ann","err.dna","export.aa","export.ann","export.dna","export.tx","olp.ann","olp.dna","uni.ann","uni.dna","wrn.ann","wrn.dna");
 		$cmd = "rm \$(find -mindepth 1 -maxdepth 1 -type f -name \"" . join("\" -or -name \"",@patterns) . "\")";
 		exe_cmd($cmd,$verbose,$dry);
+		my @logs = ("fathom.log",
+			"fathom.err",
+			"forge.log",
+			"forge.err",
+			"hmm-assembler.err");
+		my @rm_logs = ();
+		foreach(@logs){
+			if (-z "$out_dir/$_"){
+				push(@rm_logs,"$out_dir/$_");
+			}
+		}
+		if (scalar(@rm_logs) > 0){
+			$cmd = "rm " . join(" ",@rm_logs);
+			exe_cmd($cmd,$verbose,$dry);
+		}
 	}
 }
 

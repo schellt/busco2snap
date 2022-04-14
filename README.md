@@ -1,4 +1,4 @@
-# busco2snap.pl v0.1
+# busco2snap.pl v0.2
 
 ## Description
 __Creation of a SNAP model from [BUSCO](https://gitlab.com/ezlab/busco) output.__
@@ -6,7 +6,7 @@ __Creation of a SNAP model from [BUSCO](https://gitlab.com/ezlab/busco) output._
 Using [MAKER's](https://www.yandell-lab.org/software/maker.html) `cegma2zff` as archetype, `busco2snap.pl` creates a SNAP model from complete, single-copy BUSCOs by predicting the gene structure with the retrained Augustus model and converting to zff format. The tools `augustus` and `blastp` need to be in your `$PATH`. If `fathom`, `forge` and `hmm-assembler.pl` are in your `$PATH` the SNAP model will be created automatically.   
 If Augustus predicts more than one gene at a BUSCO locus, the predicted proteins are blasted against the ancestral variants of the corresponding BUSCO lineage. The gene(s) where the best hit (defined by highest bit score) is on the searched BUSCO are used only.
 
-___Currently BUSCO 3.0.2 output is supported only___
+#### Tested with BUSCO versions 3.0.2, 4.1.4 and 5.2.2
 
 ## Dependencies
 
@@ -23,13 +23,10 @@ Optional:
 ## Usage
 
 ```
-busco2snap.pl [-b <busco_dir> | -ft <full_table> -rp <retraining_parameters>]
+busco2snap.pl -b <busco_dir>
 
 Mandatory:
 	-b STR		BUSCO output directory (run_*)
-	OR
-	-ft STR		BUSCOs full table file (full_table_*)
-	-rp STR		Directory containing retrining parameters from Augustus
 			(augustus_output/retraining_parameters/)
 
 Options: [default]
